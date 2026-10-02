@@ -1,17 +1,28 @@
 # 💰 Payout Management System
 
-> **A backend payout and reconciliation platform for affiliate sales, supporting advance payouts, final settlement, withdrawal controls, idempotent processing, and failed-payout recovery.**
+> **A backend payout and reconciliation system for affiliate sales, supporting advance payouts, final settlement, withdrawal controls, idempotent processing, and failed-payout recovery.**
 
 <div align="center">
 
 **FastAPI • PostgreSQL • SQLAlchemy • Alembic • Pydantic • Pytest**
 
-[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-API-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Database-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
-[![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-ORM-D71F00)](https://www.sqlalchemy.org/)
-[![Alembic](https://img.shields.io/badge/Alembic-Migrations-499848)](https://alembic.sqlalchemy.org/)
-[![Pytest](https://img.shields.io/badge/Pytest-Testing-0A9EDC?logo=pytest&logoColor=white)](https://pytest.org/)
+</div>
+
+---
+
+## 🛠️ Tech Stack
+
+<div align="center">
+
+![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-API-009688?style=flat-square&logo=fastapi&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Database-4169E1?style=flat-square&logo=postgresql&logoColor=white)
+![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-ORM-D71F00?style=flat-square&logo=sqlalchemy&logoColor=white)
+![Alembic](https://img.shields.io/badge/Alembic-Migrations-499848?style=flat-square)
+![Pydantic](https://img.shields.io/badge/Pydantic-Validation-E92063?style=flat-square)
+![Pytest](https://img.shields.io/badge/Pytest-Testing-0A9EDC?style=flat-square&logo=pytest&logoColor=white)
+![SQLite](https://img.shields.io/badge/SQLite-Test%20DB-003B57?style=flat-square&logo=sqlite&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Containerization-2496ED?style=flat-square&logo=docker&logoColor=white)
 
 </div>
 
@@ -21,7 +32,7 @@
 
 The **Payout Management System** is a backend service designed to manage the complete payout lifecycle for affiliate sales.
 
-Each affiliate sale begins in a **Pending** state. The system can immediately issue an **advance payout of 10%** of the sale's earnings. Later, an administrator reconciles the sale as either **Approved** or **Rejected**, after which the system calculates the final payout while accounting for any advance that has already been paid.
+Every affiliate sale begins in a **Pending** state. The system can issue an **advance payout of 10%** of the sale's earnings. Later, an administrator reconciles the sale as either **Approved** or **Rejected**, after which the system calculates the final payout while accounting for any advance that has already been paid.
 
 The system also handles:
 
@@ -32,37 +43,37 @@ The system also handles:
 - ♻️ Failed payout recovery
 - 💰 Withdrawable balance management
 - 📒 Auditable payout ledger
-- 🔐 Domain-specific validation
+- 🧮 Decimal-based currency calculations
 - 🧪 Comprehensive business-rule testing
 
 ---
 
-# 💼 Business Problem
+# 💼 Problem Overview
 
-The payout lifecycle can be summarized as:
+The core business flow is:
 
 ```text
-Affiliate Sale
-      │
-      ▼
-   Pending
-      │
-      ├───────────────┐
-      │               │
-      ▼               ▼
-10% Advance       Reconciliation
-Payout                 │
+                 Affiliate Sale
+                       │
                        ▼
-              ┌────────┴────────┐
-              │                 │
-              ▼                 ▼
-           Approved          Rejected
-              │                 │
-              ▼                 ▼
-       Final Settlement      Clawback
+                  ┌─────────┐
+                  │ Pending │
+                  └────┬────┘
+                       │
+          ┌────────────┴────────────┐
+          │                         │
+          ▼                         ▼
+   Advance Payout             Reconciliation
+       10%                         │
+                                   ▼
+                         ┌─────────┴─────────┐
+                         │                   │
+                         ▼                   ▼
+                      Approved           Rejected
+                         │                   │
+                         ▼                   ▼
+                  Final Settlement       Clawback
 ```
-
-The system ensures that the advance payment is correctly accounted for when the final settlement occurs.
 
 ---
 
@@ -70,27 +81,38 @@ The system ensures that the advance payment is correctly accounted for when the 
 
 ## 1. Advance Payout
 
-A user receives:
+A Pending sale is eligible for an advance payout equal to:
 
 ```text
-Advance = 10% × Pending Sale Earnings
+Advance = 10% × Sale Earnings
 ```
 
 The advance can be paid **at most once per sale**.
 
-The `advance_paid` amount acts as the idempotency anchor, making the operation safe even if the payout job runs multiple times.
+The `advance_paid` amount acts as the idempotency anchor, making the operation safe even if the payout job is executed multiple times.
+
+### Example
+
+```text
+Sale Earnings = ₹120
+
+Advance = 10% × ₹120
+        = ₹12
+```
 
 ---
 
-## 2. Final Payout
+## 2. Final Payout on Reconciliation
 
-### Approved Sale
+When an administrator reconciles a sale, the final payout depends on the outcome.
+
+### Approved
 
 ```text
-Final Payout = Earnings − Advance Paid
+Final Payout = Earning − Advance Paid
 ```
 
-### Rejected Sale
+### Rejected
 
 ```text
 Final Payout = −Advance Paid
@@ -102,10 +124,10 @@ The negative amount represents a **clawback**, because the user was not ultimate
 
 ## 3. Withdrawal Restriction
 
-Each user can make:
+Each user can make only:
 
 ```text
-1 withdrawal / 24 hours
+1 withdrawal every 24 hours
 ```
 
 The cooldown is enforced by the service layer.
@@ -114,69 +136,69 @@ The cooldown is enforced by the service layer.
 
 ## 4. Failed Payout Recovery
 
-If a payout enters one of these states:
+If a payout becomes:
 
 ```text
-cancelled
-rejected
-failed
+Cancelled
+Rejected
+Failed
 ```
 
-the corresponding amount is credited back to the user's **withdrawable balance**.
+the amount is credited back to the user's **withdrawable balance**.
 
-This allows the user to retry the payout without permanently losing funds.
+This allows the user to retry the payout instead of permanently losing the amount.
 
 ---
 
 # 🏗️ Architecture
 
-The project uses a deliberately simple **layered architecture**:
+The project follows a simple **layered architecture**:
 
 ```text
-┌──────────────────────────────┐
-│          HTTP Layer          │
-│      FastAPI Routes          │
-└──────────────┬───────────────┘
-               │
-               ▼
-┌──────────────────────────────┐
-│       Service Layer          │
-│                              │
-│ • Advance Payout             │
-│ • Reconciliation             │
-│ • Withdrawal                 │
-│ • Recovery                   │
-└──────────────┬───────────────┘
-               │
-               ▼
-┌──────────────────────────────┐
-│        ORM / Models          │
-│         SQLAlchemy           │
-└──────────────┬───────────────┘
-               │
-               ▼
-┌──────────────────────────────┐
-│         PostgreSQL           │
-└──────────────────────────────┘
+┌────────────────────────────────┐
+│          FastAPI Routes        │
+│        HTTP Request/Response   │
+└───────────────┬────────────────┘
+                │
+                ▼
+┌────────────────────────────────┐
+│         Service Layer          │
+│                                │
+│  • Advance Payout              │
+│  • Reconciliation              │
+│  • Withdrawal                  │
+│  • Recovery                    │
+└───────────────┬────────────────┘
+                │
+                ▼
+┌────────────────────────────────┐
+│       SQLAlchemy Models        │
+│         ORM Entities           │
+└───────────────┬────────────────┘
+                │
+                ▼
+┌────────────────────────────────┐
+│          PostgreSQL            │
+└────────────────────────────────┘
 ```
 
 ### Layer Responsibilities
 
 | Layer | Responsibility |
 |---|---|
-| `routes/` | HTTP request/response handling |
+| `routes/` | FastAPI routers and HTTP handling |
 | `services/` | Business rules and domain workflows |
-| `models/` | SQLAlchemy database entities |
+| `models/` | SQLAlchemy ORM entities |
 | `schemas/` | Pydantic request/response contracts |
-| `utils/` | Domain-specific exception hierarchy |
-| `database.py` | Database engine, sessions, and declarative base |
+| `utils/` | Custom domain exceptions |
+| `database.py` | Database engine, sessions, and Base |
 | `config.py` | Application configuration |
 
 ---
 
 # 🧠 Why Layered Architecture?
 
-The system intentionally avoids introducing unnecessary architectural complexity.
+The project intentionally avoids unnecessary architectural complexity.
 
 Patterns such as:
 
@@ -186,88 +208,125 @@ Patterns such as:
 - Dedicated use-case classes
 - Dependency-injection containers
 
-can be useful in larger systems, but would introduce additional ceremony for this assignment.
+can be useful in larger production systems, but for this project's scope they would introduce additional ceremony without providing significant benefit.
 
-The selected architecture keeps the system:
+The layered service-based architecture provides:
 
-> **Simple enough to understand, while still demonstrating strong separation of concerns.**
+- Clear separation of concerns
+- Easy navigation
+- Testable business logic
+- Minimal abstraction
+- Straightforward dependency flow
 
-The `core/` package was also intentionally avoided because the current project does not contain enough cross-cutting infrastructure to justify another abstraction layer.
+```text
+Routes
+   ↓
+Services
+   ↓
+Models
+   ↓
+Database
+```
+
+The `core/` package was also intentionally merged into:
+
+```text
+config.py
+utils/exceptions.py
+```
+
+because the project does not currently contain enough cross-cutting infrastructure to justify a separate package.
 
 ---
 
-# 🔄 End-to-End Payout Flow
+# 🔄 End-to-End Payout Lifecycle
 
 ```text
-                 Create Sale
-                      │
-                      ▼
-                 ┌─────────┐
-                 │ Pending │
-                 └────┬────┘
-                      │
-                      ▼
-             Advance Payout Job
-                      │
-                      ▼
-              10% of Earnings
-                      │
-                      ▼
-              Advance Recorded
-                      │
-                      ▼
-               Admin Reconcile
-                      │
-              ┌───────┴───────┐
-              │               │
-              ▼               ▼
-           Approved         Rejected
-              │               │
-              ▼               ▼
-        Earning - Advance  -Advance
-              │               │
-              └───────┬───────┘
-                      ▼
-                Final Payout
-                      │
-                      ▼
-              Payout Ledger
+                     Create Sale
+                          │
+                          ▼
+                    ┌──────────┐
+                    │ Pending  │
+                    └────┬─────┘
+                         │
+                         ▼
+                Advance Payout Job
+                         │
+                         ▼
+                  Calculate 10%
+                         │
+                         ▼
+                  Create Payout
+                         │
+                         ▼
+                Update User Balance
+                         │
+                         ▼
+                  Mark Advance Paid
+                         │
+                         ▼
+                 Admin Reconciliation
+                         │
+              ┌──────────┴──────────┐
+              │                     │
+              ▼                     ▼
+          Approved               Rejected
+              │                     │
+              ▼                     ▼
+       Earning - Advance       -Advance Paid
+              │                     │
+              └──────────┬──────────┘
+                         ▼
+                   Final Payout
+                         │
+                         ▼
+                  Payout Ledger
+                         │
+                         ▼
+                Withdrawal / Recovery
 ```
 
 ---
 
 # 🗄️ Database Design
 
-The system revolves around three primary entities.
+The system uses three primary business entities.
 
 ## 👤 User
 
-Stores:
+Tracks:
 
 - User identity
-- Withdrawable balance
+- `withdrawable_balance`
 
 ---
 
 ## 🛒 Sale
 
-Represents an affiliate sale.
+Represents a single affiliate sale.
 
 Important fields include:
 
-- Sale status
-- Earnings
-- Advance-paid amount
+- `status`
+- `earning`
+- `advance_paid`
+- User relationship
 
-The `advance_paid` amount is also the key idempotency anchor for advance processing.
+The `advance_paid` value is also used as the idempotency anchor for advance processing.
 
 ---
 
 ## 💸 Payout
 
-Represents every payout event.
+Represents a financial payout event.
 
-Supported payout lifecycle states include:
+A payout can represent:
+
+- Advance payout
+- Final payout
+- Withdrawal
+
+Supported lifecycle states:
 
 ```text
 pending
@@ -277,53 +336,46 @@ cancelled
 rejected
 ```
 
-A payout can represent:
-
-- Advance payout
-- Final payout
-- Withdrawal
-
-This creates a centralized, auditable payout history and enables recovery workflows.
+Keeping payout events in a ledger provides an auditable history and enables recovery processing.
 
 ---
 
 # 📊 Data Model
 
 ```text
-┌────────────────────┐
-│       User         │
-├────────────────────┤
-│ id                 │
-│ withdrawable_bal.  │
-└─────────┬──────────┘
-          │
-          │ 1:N
-          ▼
-┌────────────────────┐
-│       Sale         │
-├────────────────────┤
-│ id                 │
-│ user_id            │
-│ status              │
-│ earning             │
-│ advance_paid        │
-└─────────┬──────────┘
-          │
-          │
-          ▼
-┌────────────────────┐
-│      Payout        │
-├────────────────────┤
-│ id                 │
-│ user_id            │
-│ sale_id             │
-│ type                │
-│ amount              │
-│ status              │
-└────────────────────┘
+┌──────────────────────┐
+│         User         │
+├──────────────────────┤
+│ id                   │
+│ withdrawable_balance │
+└──────────┬───────────┘
+           │
+           │ 1:N
+           ▼
+┌──────────────────────┐
+│        Sale          │
+├──────────────────────┤
+│ id                   │
+│ user_id              │
+│ status               │
+│ earning              │
+│ advance_paid         │
+└──────────┬───────────┘
+           │
+           ▼
+┌──────────────────────┐
+│       Payout         │
+├──────────────────────┤
+│ id                   │
+│ user_id              │
+│ sale_id              │
+│ type                 │
+│ amount               │
+│ status               │
+└──────────────────────┘
 ```
 
-For the complete schema, ER diagram, indexes, and relationships, see:
+Detailed ER diagrams, relationships, indexes, and schema definitions are documented in:
 
 `docs/database-schema.md`
 
@@ -335,11 +387,9 @@ For the complete schema, ER diagram, indexes, and relationships, see:
 payout-management-system/
 │
 ├── app/
-│   ├── main.py
-│   │
-│   ├── database.py
-│   │
-│   ├── config.py
+│   ├── main.py                  # FastAPI entrypoint + exception handling
+│   ├── database.py              # DB engine, session, Base
+│   ├── config.py                # Application settings
 │   │
 │   ├── models/
 │   │   ├── user.py
@@ -347,7 +397,7 @@ payout-management-system/
 │   │   └── payout.py
 │   │
 │   ├── schemas/
-│   │   └── ...
+│   │   └── ...                  # Pydantic contracts
 │   │
 │   ├── services/
 │   │   ├── advance.py
@@ -361,10 +411,9 @@ payout-management-system/
 │   │   └── withdrawals.py
 │   │
 │   └── utils/
-│       └── exceptions.py
+│       └── exceptions.py        # Domain exception hierarchy
 │
-├── alembic/
-│   └── ...
+├── alembic/                     # Database migrations
 │
 ├── tests/
 │   ├── test_advance_payout.py
@@ -391,22 +440,28 @@ payout-management-system/
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| `POST` | `/sales` | Create a sale |
-| `GET` | `/sales/{sale_id}` | Fetch a sale |
-| `GET` | `/sales?user_id=...` | List user sales |
+| `POST` | `/sales` | Create a sale and auto-create user if new |
+| `GET` | `/sales/{sale_id}` | Fetch a single sale |
+| `GET` | `/sales?user_id=...` | List user's sales |
 | `PATCH` | `/sales/{sale_id}/reconcile` | Reconcile a sale |
-| `POST` | `/sales/reconcile/batch` | Batch reconciliation |
+| `POST` | `/sales/reconcile/batch` | Batch reconcile sales |
 | `POST` | `/payouts/advance/{user_id}` | Run advance payout for one user |
 | `POST` | `/payouts/advance` | Run advance payout for all users |
-| `GET` | `/payouts?user_id=...` | Fetch payout ledger |
+| `GET` | `/payouts?user_id=...` | Fetch user's payout ledger |
 | `PATCH` | `/payouts/{payout_id}/status` | Simulate processor callback |
-| `POST` | `/payouts/recover/{user_id}` | Run recovery sweep |
-| `POST` | `/withdrawals/{user_id}` | Withdraw full balance |
+| `POST` | `/payouts/recover/{user_id}` | Run manual recovery sweep |
+| `POST` | `/withdrawals/{user_id}` | Withdraw full available balance |
 | `GET` | `/health` | Liveness check |
+
+Detailed request/response examples are available in:
+
+`docs/api-documentation.md`
 
 ---
 
-# 🔁 Advance Payout Processing
+# 💸 Advance Payout Processing
+
+The advance payout job follows this flow:
 
 ```text
 Pending Sales
@@ -429,133 +484,179 @@ Mark advance_paid
 
 ### Idempotency
 
-If the same advance job executes again:
+The job can safely run more than once.
 
 ```text
 First Run
    │
-   ├── Advance created
-   └── advance_paid updated
-
+   ├── Calculate advance
+   ├── Create payout
+   └── Mark advance_paid
+          │
+          ▼
 Second Run
    │
    └── Already paid → Skip
 ```
 
-This protects against duplicate payouts when scheduled jobs are retried or rerun.
+This prevents duplicate advance payouts when a scheduled job is retried.
 
 ---
 
 # 🧾 Reconciliation
 
-The reconciliation process supports:
+The reconciliation flow supports two outcomes:
 
 ```text
-Pending
-   │
-   ├───────────────┐
-   ▼               ▼
-Approved        Rejected
-   │               │
-   ▼               ▼
-earning -       -advance
-advance_paid      paid
+                    Pending
+                       │
+              ┌────────┴────────┐
+              │                 │
+              ▼                 ▼
+          Approved           Rejected
+              │                 │
+              ▼                 ▼
+      Earning - Advance     -Advance Paid
+              │                 │
+              └────────┬────────┘
+                       ▼
+                 Final Payout
 ```
 
-Reconciliation is designed to be idempotent, preventing the same sale from being financially settled multiple times.
+Reconciliation is designed to be idempotent so that the same sale cannot be financially settled multiple times.
 
 ---
 
-# 🔄 Payout Recovery
+# 🔁 Batch Reconciliation
 
-Processor callbacks can transition payouts into failure states.
+The API supports reconciling multiple sales in one request:
 
-```text
-Payout
-  │
-  ▼
-Processor Callback
-  │
-  ├── completed ──► No recovery
-  │
-  ├── failed ─────► Credit balance
-  │
-  ├── cancelled ──► Credit balance
-  │
-  └── rejected ───► Credit balance
+```http
+POST /sales/reconcile/batch
 ```
 
-A manual recovery endpoint is also available for missed callbacks:
+The batch workflow processes the selected sales and returns an aggregated final payout result.
+
+The project deliberately documents the trade-off around **non-atomic batch reconciliation** rather than treating the entire batch as one all-or-nothing transaction.
+
+See:
+
+`docs/design-decisions.md`
+
+---
+
+# ♻️ Payout Recovery
+
+Processor callbacks can move payouts into failure states.
+
+```text
+                    Payout
+                      │
+                      ▼
+              Processor Callback
+                      │
+       ┌──────────────┼──────────────┐
+       │              │              │
+       ▼              ▼              ▼
+   completed        failed       cancelled
+       │              │              │
+       ▼              └──────┬───────┘
+     No Action               │
+                             ▼
+                     Credit Balance
+```
+
+Rejected payouts are also eligible for recovery.
+
+### Manual Recovery
+
+If a processor callback is missed, a manual recovery sweep can be triggered:
 
 ```http
 POST /payouts/recover/{user_id}
 ```
 
-Recovery is itself designed to be idempotent.
+Recovery is designed to be idempotent.
 
 ---
 
 # ⏱️ Withdrawal Cooldown
 
-A user can withdraw their available balance only once within a 24-hour period.
+The system enforces one withdrawal per user every 24 hours.
 
 ```text
 Withdrawal Request
         │
         ▼
-Check Previous Withdrawal
+Check Last Withdrawal
         │
         ▼
-   Within 24 hours?
-      │       │
-     Yes      No
-      │        │
-      ▼        ▼
-   Reject    Allow
-               │
-               ▼
-        Withdraw Balance
+   Within 24 Hours?
+      │         │
+     Yes        No
+      │          │
+      ▼          ▼
+    Reject      Allow
+                  │
+                  ▼
+           Withdraw Balance
 ```
 
-The system also considers the interaction between **withdrawal cooldown and payout recovery**, preventing recovery logic from bypassing the intended withdrawal restrictions.
+The implementation also considers the interaction between:
+
+```text
+Withdrawal Cooldown
+        +
+Payout Recovery
+```
+
+so that recovery does not unintentionally bypass the withdrawal restriction.
 
 ---
 
 # 🧮 Financial Precision
 
-Financial calculations use **Decimal-based arithmetic** rather than floating-point calculations.
+All currency calculations use **Decimal-based arithmetic** rather than floating-point arithmetic.
 
-This is particularly important for:
+This is important for:
 
 - Advance calculations
-- Final payout calculations
+- Final settlement
 - Clawbacks
-- Withdrawals
 - Balance updates
+- Withdrawals
 - Currency rounding
 
-Example:
+### Example
 
 ```text
 Sale Earnings = ₹120
 
-Advance = 10%
-
-Advance = ₹120 × 0.10
+Advance = ₹120 × 10%
         = ₹12
 ```
 
-The reconciliation tests also cover the complete **₹68 worked example** from the assignment.
+The test suite includes the assignment's ₹120 → ₹12 example as well as the complete ₹68 reconciliation example.
+
+---
+
+# 🛡️ Error Handling
+
+The application uses a custom domain exception hierarchy located in:
+
+```text
+app/utils/exceptions.py
+```
+
+This keeps business-specific failures separate from generic framework errors and allows the FastAPI layer to translate domain errors into appropriate HTTP responses.
 
 ---
 
 # 🧪 Testing
 
-The project uses **pytest** with an **in-memory SQLite database** for the test suite.
+The test suite runs against an **in-memory SQLite database**.
 
-This means:
-
-> PostgreSQL is not required to execute the automated tests.
+This means PostgreSQL does not need to be configured locally just to execute the tests.
 
 Run:
 
@@ -565,23 +666,23 @@ pytest tests/ -v
 
 ---
 
-# ✅ Test Coverage
+## ✅ Test Coverage
 
 ### `test_advance_payout.py`
 
 Covers:
 
-- 10% calculation
+- 10% advance calculation
 - ₹120 → ₹12 example
 - Advance payout creation
-- Idempotent reruns
+- Idempotent job reruns
 
 ### `test_reconciliation.py`
 
 Covers:
 
-- Approved payout calculation
-- Rejected payout calculation
+- Approved final payout
+- Rejected final payout
 - Advance deduction
 - ₹68 worked example
 - Reconciliation idempotency
@@ -601,27 +702,32 @@ Covers:
 - Failed payout recovery
 - Cancelled payout recovery
 - Rejected payout recovery
-- Credit-back behavior
+- Balance credit-back
 - Recovery idempotency
 
 ---
 
-# ⚠️ Edge Cases
+# ⚠️ Edge Cases & Failure Scenarios
 
-The implementation explicitly handles **13 edge and failure scenarios**.
+The implementation explicitly handles **13 edge cases**.
 
-These include:
+Important scenarios include:
 
 - Duplicate advance payout execution
 - Double reconciliation
-- Withdrawal cooldown enforcement
-- Recovery after failed payouts
+- Withdrawal cooldown
+- Insufficient balance
+- Failed payout recovery
+- Cancelled payout recovery
+- Rejected payout recovery
 - Missed processor callbacks
 - Recovery sweeps
-- Interaction between recovery and withdrawal cooldown
+- Recovery/cooldown interaction
 - Currency rounding safety
+- Idempotent recovery
+- Idempotent reconciliation
 
-Detailed reasoning and test references are available in:
+Detailed reasoning and test references:
 
 `docs/edge-cases.md`
 
@@ -638,7 +744,7 @@ Detailed reasoning and test references are available in:
 
 ---
 
-## 1. Clone Repository
+## 1. Clone the Repository
 
 ```bash
 git clone <repo-url>
@@ -679,11 +785,11 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Update `.env` with the PostgreSQL connection details.
+Update `.env` with your PostgreSQL credentials.
 
 ---
 
-## 5. Run Migrations
+## 5. Run Database Migrations
 
 ```bash
 alembic upgrade head
@@ -691,7 +797,7 @@ alembic upgrade head
 
 ---
 
-## 6. Start Server
+## 6. Start the Server
 
 ```bash
 uvicorn app.main:app --reload
@@ -703,7 +809,7 @@ Application:
 http://127.0.0.1:8000
 ```
 
-Interactive API documentation:
+Interactive Swagger documentation:
 
 ```text
 http://127.0.0.1:8000/docs
@@ -713,7 +819,7 @@ http://127.0.0.1:8000/docs
 
 # 🐘 PostgreSQL with Docker
 
-If PostgreSQL is not installed locally:
+If PostgreSQL is not installed locally, run:
 
 ```bash
 docker run --name payout-db \
@@ -724,24 +830,24 @@ docker run --name payout-db \
   -d postgres
 ```
 
-The default `.env.example` configuration is designed to match this setup.
+The default `.env.example` values are designed to match this configuration.
 
 ---
 
-# 🛠️ Technology Stack
+# 🐳 Docker
 
-| Category | Technology |
-|---|---|
-| Language | Python 3.11+ |
-| API Framework | FastAPI |
-| ORM | SQLAlchemy |
-| Database | PostgreSQL |
-| Validation | Pydantic |
-| Migrations | Alembic |
-| Testing | Pytest |
-| Test Database | SQLite |
-| Configuration | Pydantic BaseSettings |
-| Containerization | Docker |
+The application can be containerized together with its PostgreSQL dependency.
+
+Example PostgreSQL container:
+
+```bash
+docker run --name payout-db \
+  -e POSTGRES_USER=payout_user \
+  -e POSTGRES_PASSWORD=payout_password \
+  -e POSTGRES_DB=payout_management \
+  -p 5432:5432 \
+  -d postgres
+```
 
 ---
 
@@ -749,50 +855,50 @@ The default `.env.example` configuration is designed to match this setup.
 
 The project includes dedicated engineering documentation.
 
-| Document | Covers |
+| Document | Description |
 |---|---|
-| `docs/LLD.md` | Overall workflow, entity responsibilities, business rules |
-| `docs/database-schema.md` | ER diagram, columns, indexes, relationships |
-| `docs/class-design.md` | Models, services, schemas, exception hierarchy |
-| `docs/api-documentation.md` | API endpoints and request/response examples |
-| `docs/edge-cases.md` | 13 edge cases and test references |
-| `docs/design-decisions.md` | Architectural decisions and trade-offs |
+| [`docs/LLD.md`](./docs/LLD.md) | Overall workflow, entity responsibilities, and business-rule rationale |
+| [`docs/database-schema.md`](./docs/database-schema.md) | ER diagram, schema, indexes, and relationships |
+| [`docs/class-design.md`](./docs/class-design.md) | Model classes, service layer, schemas, and exceptions |
+| [`docs/api-documentation.md`](./docs/api-documentation.md) | API endpoints with request/response examples |
+| [`docs/edge-cases.md`](./docs/edge-cases.md) | 13 handled edge cases and test references |
+| [`docs/design-decisions.md`](./docs/design-decisions.md) | Architecture and implementation trade-offs |
 
 ---
 
-# 🧠 Design Decisions
+# 🧠 Design Decisions & Trade-offs
 
-Several deliberate engineering decisions shape the implementation.
+The project documents the reasoning behind its major engineering decisions.
 
 ### Single Payout Ledger
 
-A single `Payout` entity records:
+A single `Payout` table records:
 
 - Advance payouts
 - Final payouts
 - Withdrawals
 
-This creates a centralized financial history.
+This provides a centralized financial history.
 
 ### Stateless Services
 
 Business logic is implemented through service functions rather than stateful service classes.
 
-### Decimal Currency Handling
+### Decimal Currency Math
 
-Financial calculations use Decimal arithmetic to avoid floating-point precision issues.
+`Decimal` is used for financial calculations to avoid floating-point precision problems.
 
 ### Idempotent Operations
 
-Advance payouts, reconciliation, and recovery are designed to safely handle repeated execution.
+Advance payouts, reconciliation, and recovery can safely handle repeated execution.
 
 ### Non-Atomic Batch Reconciliation
 
-Batch reconciliation is intentionally not treated as one all-or-nothing transaction, allowing individual sale outcomes to be processed independently.
+Batch reconciliation is intentionally not implemented as one all-or-nothing transaction, allowing individual sale processing to proceed independently.
 
 ### Simple Architecture
 
-The system avoids abstraction layers that do not provide meaningful value at this project scale.
+The project avoids abstractions that do not provide meaningful value at its current scope.
 
 ---
 
@@ -800,52 +906,55 @@ The system avoids abstraction layers that do not provide meaningful value at thi
 
 ```text
 ┌─────────────────────────────────────────────┐
-│             PAYOUT ENGINE                   │
+│              PAYOUT ENGINE                  │
 ├─────────────────────────────────────────────┤
 │                                             │
+│  Affiliate Sale                             │
+│       ↓                                     │
 │  10% Advance Payout                         │
-│          ↓                                  │
+│       ↓                                     │
 │  Idempotent Processing                      │
-│          ↓                                  │
+│       ↓                                     │
 │  Admin Reconciliation                       │
-│          ↓                                  │
+│       ↓                                     │
 │  Approved / Rejected Settlement             │
-│          ↓                                  │
-│  Payout Ledger                              │
-│          ↓                                  │
-│  Processor Failure Recovery                 │
-│          ↓                                  │
+│       ↓                                     │
+│  Auditable Payout Ledger                    │
+│       ↓                                     │
+│  Processor Status                           │
+│       ↓                                     │
+│  Failed Payout Recovery                     │
+│       ↓                                     │
 │  Withdrawable Balance                       │
-│          ↓                                  │
+│       ↓                                     │
 │  24-Hour Withdrawal Control                 │
 │                                             │
 └─────────────────────────────────────────────┘
 ```
 
-### Key Engineering Concepts Demonstrated
+### Key Engineering Concepts
 
-- Backend API design
-- Layered architecture
-- Financial business logic
-- Idempotency
-- Reconciliation workflows
-- Failure recovery
-- Database modeling
-- Transaction-aware domain logic
-- Decimal currency calculations
-- API validation
-- Exception handling
-- Database migrations
-- Automated testing
-- Dockerized infrastructure
+- ⚙️ Backend API design
+- 🐍 Python & FastAPI
+- 🗄️ PostgreSQL database design
+- 🧩 SQLAlchemy ORM
+- 🔄 Alembic migrations
+- 💰 Financial business logic
+- 🔁 Idempotency
+- 🧾 Reconciliation workflows
+- ♻️ Failure recovery
+- 🧮 Decimal currency handling
+- 🧪 Automated testing
+- 🛡️ Domain exception handling
+- 🐳 Docker-based infrastructure
 
 ---
 
 # 🚀 What This Project Demonstrates
 
-This project is designed around a realistic financial workflow rather than a simple CRUD API.
+This is more than a basic CRUD backend.
 
-The core challenge is maintaining a correct financial state across:
+The main engineering challenge is maintaining correct financial state across:
 
 ```text
 Sales
@@ -863,30 +972,52 @@ Recovery
 Withdrawal
 ```
 
-The implementation therefore focuses heavily on:
+The implementation therefore focuses on:
 
-**correctness → idempotency → auditability → recovery → testability**
+```text
+Correctness
+    ↓
+Idempotency
+    ↓
+Auditability
+    ↓
+Recovery
+    ↓
+Testability
+```
+
+---
+
+# 📋 API Documentation
+
+For complete request/response examples and an end-to-end `curl` walkthrough:
+
+```text
+docs/api-documentation.md
+```
+
+For the complete low-level design:
+
+```text
+docs/LLD.md
+```
 
 ---
 
 # 👨‍💻 Author
 
-**Devansh Negi**
+<div align="center">
 
-Backend / AI Engineer focused on:
+### Devansh Negi
 
-- ⚙️ Backend Engineering
-- 🐍 Python & FastAPI
-- 🗄️ PostgreSQL & Database Design
-- 🔌 REST APIs
-- 🤖 AI/ML Applications
-- 🐳 Docker & Deployment
-- 🧪 Software Testing
+**Backend / AI Engineer**
 
-### Connect
+Python • FastAPI • PostgreSQL • REST APIs • AI/ML • Docker
 
-- **GitHub:** https://github.com/devanshnegi88
-- **LinkedIn:** https://linkedin.com/in/devansh-negi005
+[![GitHub](https://img.shields.io/badge/GitHub-devanshnegi88-181717?style=flat-square&logo=github&logoColor=white)](https://github.com/devanshnegi88)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-Devansh%20Negi-0A66C2?style=flat-square&logo=linkedin&logoColor=white)](https://linkedin.com/in/devansh-negi005)
+
+</div>
 
 ---
 
